@@ -8,14 +8,17 @@ A local shopping prototype: shoppers choose exact products and authorize a tempo
 
 ## Run locally
 
-Requires Node.js 22+. The app itself has no npm runtime dependencies.
+Requires Node.js 22+. Runtime dependency: `mongodb` (for optional shopper email/password accounts).
 
 ```sh
+npm install
 cp outputs/visa-sandbox/.env.example outputs/visa-sandbox/.env
 cp outputs/committed-cart/.env.example outputs/committed-cart/.env
-# Enter your own sandbox credentials in those local files.
+# Enter your own sandbox credentials and optional MONGODB_URI in those local files.
 npm start
 ```
+
+Shopper sign-up / sign-in uses email + password stored in MongoDB Atlas when `MONGODB_URI` is set. Without it, the rest of the prototype still runs; account endpoints return a clear configuration error. Setup guide: ask the project for `docs/mongodb-atlas-setup.md`.
 
 Open http://localhost:4318 for the shopper page, or http://localhost:4318/#merchant for the merchant manager. Missing credentials disable the associated Visa/search integration. No production payments are supported.
 

@@ -4,6 +4,7 @@ import {cartBaseline,itemKey,lowerOffers} from './market-baseline.js';
 const API='http://localhost:4318', $=id=>document.getElementById(id),money=c=>new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(c/100);
 let draft=null,current=null,index=0,hours=1,confirming=false,online=false,reading=false,searching=false,operation=false,revision=0,lastImport=0,quotes={},searchCache={};
 let pageMode='checking',historyOpen=false,viewingHistory=false,historyCart=null,historyPage=0,historyCarts=[],activeTabId=null;
+let authToken=null,authInfo={available:false,user:null,reason:null},authOpen=false,authMode='login',authBusy=false;
 const active=c=>c&&['authorized','authorizing','reversing','needs_review'].includes(c.status);
 const signature=items=>JSON.stringify(items.map(x=>[x.name,x.variant,x.url||'',Number(x.quantity),Number(x.price??x.cents/100)]));
 const sameCommitment=()=>active(current)&&draft&&signature(current.items)===signature(draft.items);
@@ -22,8 +23,20 @@ function safeImage(value){return safeLink(value);}
 function saveUI(){return chrome.storage.session.set({laterUI:{draft,hours,quotes,searchCache,lastImport}}).catch(()=>{});}
 const queryFor=productQuery;
 async function request(path,body){
- const response=await fetch(API+path,{credentials:'include',cache:'no-store',signal:AbortSignal.timeout(path==='/api/compare'||path==='/api/commit-test-card'?30000:7000),...(body?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}:{})});
+ const headers={};if(body)headers['Content-Type']='application/json';if(authToken)headers.Authorization='Bearer '+authToken;
+ const response=await fetch(API+path,{credentials:'include',cache:'no-store',signal:AbortSignal.timeout(path==='/api/compare'||path==='/api/commit-test-card'?30000:7000),headers,...(body?{method:'POST',body:JSON.stringify(body)}:{})});
  const data=await response.json();if(!response.ok)throw new Error(data.error||'Please try again.');return data;
+}
+async function saveAuth(){return chrome.storage.session.set({laterAuth:{token:authToken,info:authInfo}}).catch(()=>{});}
+function applyAuth(payload,token){if(payload)authInfo={available:!!payload.available,user:payload.user||null,reason:payload.reason||null};if(token!==undefined)authToken=token;saveAuth();renderAuthChrome();}
+function renderAuthChrome(){
+ const user=authInfo.user;$('accountToggle').textContent=authOpen?'Close':(user?'Sign out':(authInfo.available?'Sign in':'Account'));
+ $('authView').hidden=!authOpen;if(!authOpen)return;
+ $('authHeading').textContent=authMode==='signup'?'Create account':'Sign in';
+ $('authSubmit').textContent=authBusy?'Working…':(authMode==='signup'?'Create account':'Sign in');
+ $('authSubmit').disabled=authBusy;$('authPassword').autocomplete=authMode==='signup'?'new-password':'current-password';
+ document.querySelectorAll('[data-auth-mode]').forEach(b=>b.classList.toggle('active',b.dataset.authMode===authMode));
+ $('authHint').textContent=authInfo.available?'Passwords are hashed on the local Later server (MongoDB Atlas).':(authInfo.reason||'Set MONGODB_URI on the local server to enable accounts.');
 }
 function baseline(){const fresh={};for(const item of draft.items){const cache=searchCache[queryFor(item).toLowerCase()];if(cache&&Date.now()-cache.at<3600000){const offers=lowerOffers(cache.offers,Math.round(Number(item.price)*100));if(offers.length)fresh[itemKey(item)]=Math.min(...offers.map(x=>x.price));}}return cartBaseline(draft.items,fresh);}
 function renderHistory(){
@@ -34,6 +47,8 @@ function renderHistory(){
 }
 function historyStatus(cart){return cart.selectedOfferId?'Offer selected':({authorized:'Waiting for offers',released:'Hold released',declined:'Hold declined',needs_review:'Hold needs review',authorizing:'Authorization pending',reversing:'Releasing hold'})[cart.status]||'Wait ended';}
 function render(){
+ renderAuthChrome();
+ if(authOpen){$('home').hidden=true;$('history').hidden=true;$('empty').hidden=true;$('cartView').hidden=true;$('footer').hidden=true;$('historyBack').hidden=true;$('read').hidden=true;$('app').setAttribute('aria-busy','false');return;}
  const neutral=pageMode!=='shopping'&&!viewingHistory;
  $('home').hidden=!neutral||historyOpen||pageMode==='checking';$('history').hidden=!neutral||!historyOpen;$('historyBack').hidden=!historyOpen&&!viewingHistory;$('read').hidden=neutral||viewingHistory;
  if(neutral){$('empty').hidden=pageMode!=='checking';$('retry').hidden=true;$('cartView').hidden=true;$('footer').hidden=true;$('app').setAttribute('aria-busy',String(pageMode==='checking'));document.body.classList.remove('has-deal','multiple');if(historyOpen)renderHistory();return;}
@@ -91,11 +106,24 @@ async function readPage({refreshState=true}={}){
  finally{reading=false;$('read').disabled=false;$('retry').disabled=false;}
 }
 async function syncState(){
- try{const data=await request('/api/state');online=!!data.configured;if($('message').textContent.startsWith('Later is offline.'))notify();if(!online)notify('Connect Visa in the local app before starting a wait.');
+ try{const data=await request('/api/state');online=!!data.configured;applyAuth(data.auth);if($('message').textContent.startsWith('Later is offline.'))notify();if(!online)notify('Connect Visa in the local app before starting a wait.');
   historyCarts=data.carts||[];const pending=historyCarts.find(active);current=pending||null;
   if(pending&&(!draft||sameCommitment())){const old=draft?.items||[];draft=normalize({source:'Shopping cart',items:pending.items.map(x=>({...x,image:old.find(o=>o.url===x.url)?.image||''}))});confirming=false;}
   await chrome.storage.session.set({laterState:pending||null,laterHistory:historyCarts});render();return true;
  }catch{online=false;notify('Later is offline. Start the local app, then retry.');render();return false;}
+}
+async function submitAuth(){
+ if(authBusy)return;authBusy=true;notify();render();
+ try{
+  const path=authMode==='signup'?'/api/auth/signup':'/api/auth/login';
+  const data=await request(path,{email:$('authEmail').value,password:$('authPassword').value});
+  applyAuth(data.auth||{available:true,user:data.user},data.token);authOpen=false;$('authPassword').value='';await syncState();notify(authMode==='signup'?'Account created.':'Signed in.');
+ }catch(e){notify(e.message);}finally{authBusy=false;render();}
+}
+async function logoutAuth(){
+ if(authBusy)return;authBusy=true;notify();render();
+ try{const data=await request('/api/auth/logout',{});applyAuth(data.auth||{available:authInfo.available,user:null,reason:authInfo.reason},null);await syncState();notify('Signed out.');}
+ catch(e){notify(e.message);}finally{authBusy=false;authOpen=false;render();}
 }
 async function compare(){
  if(searching||!draft)return;const item=draft.items[index],query=queryFor(item),key=query.toLowerCase(),requestRevision=revision;searching=true;notify();render();
@@ -119,12 +147,17 @@ async function releaseHold(){if(!current||operation)return;operation=true;notify
 async function chooseOffer(offerId){if(!current||operation)return;operation=true;render();try{const result=await request('/api/select',{intentId:current.id,offerId,approved:true});current=result.cart;await chrome.storage.session.set({laterState:current});}catch{notify('This offer is unavailable. Refresh to check again.');}finally{operation=false;render();}}
 $('productImage').onload=()=>{$('productImage').hidden=false;$('imageFallback').hidden=true;};$('productImage').onerror=()=>{$('productImage').hidden=true;$('imageFallback').hidden=false;};
 $('reviewHistory').onclick=()=>{historyOpen=true;historyPage=0;notify();render();syncState();};$('historyBack').onclick=()=>{if(viewingHistory){viewingHistory=false;historyOpen=true;pageMode='home';}else historyOpen=false;notify();render();};$('historyPrevious').onclick=()=>{historyPage--;renderHistory();};$('historyNext').onclick=()=>{historyPage++;renderHistory();};
+$('accountToggle').onclick=()=>{if(authInfo.user&&!authOpen){logoutAuth();return;}authOpen=!authOpen;if(authOpen){authMode='login';notify();}render();};
+$('authCancel').onclick=()=>{authOpen=false;notify();render();};
+$('authSubmit').onclick=submitAuth;
+document.querySelectorAll('[data-auth-mode]').forEach(button=>button.onclick=()=>{authMode=button.dataset.authMode;notify();render();});
 $('read').onclick=readPage;$('retry').onclick=readPage;$('compare').onclick=compare;$('primary').onclick=primary;$('release').onclick=releaseHold;$('back').onclick=()=>{confirming=false;render();};$('consent').onchange=render;
 $('previous').onclick=()=>{index--;notify();render();};$('next').onclick=()=>{index++;notify();render();};
 document.querySelectorAll('[data-hours]').forEach(button=>button.onclick=()=>{hours=Number(button.dataset.hours);render();saveUI();});
 chrome.storage.onChanged.addListener((changes,area)=>{if(area==='session'&&changes.laterCart?.newValue?.tabId===activeTabId)acceptImport(changes.laterCart.newValue,{fromPage:true});});
 async function boot(){
- try{const saved=await chrome.storage.session.get(['laterUI','laterCart','laterState','laterHistory']);const ui=saved.laterUI;historyCarts=saved.laterHistory||[];
+ try{const saved=await chrome.storage.session.get(['laterUI','laterCart','laterState','laterHistory','laterAuth']);const ui=saved.laterUI;historyCarts=saved.laterHistory||[];
+  if(saved.laterAuth?.token)authToken=saved.laterAuth.token;if(saved.laterAuth?.info)authInfo=saved.laterAuth.info;
   if(ui?.draft&&!draft){draft=normalize(ui.draft);hours=[.25,1,12].includes(ui.hours)?ui.hours:1;lastImport=ui.lastImport||0;searchCache=ui.searchCache||{};quotes={};for(const item of draft.items){const cache=searchCache[queryFor(item).toLowerCase()];if(cache&&Date.now()-cache.at<3600000){const lower=lowerOffers(cache.offers,Math.round(Number(item.price)*100));if(lower.length)quotes[itemKey(item)]=Math.min(...lower.map(x=>x.price));}}}
   if(active(saved.laterState)){current=saved.laterState;if(!draft)draft=normalize({items:current.items});}
   render();const check=syncState();await readPage({refreshState:false});const connected=await check;if(!connected)notify('Later is offline. Start the local app, then retry.');else if(!online)notify('Connect Visa in the local app before starting a wait.');
