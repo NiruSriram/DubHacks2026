@@ -1,0 +1,18 @@
+import {parseHTML} from 'linkedom';
+import {readFileSync} from 'node:fs';
+import vm from 'node:vm';
+import assert from 'node:assert/strict';
+const source=readFileSync('outputs/amazon-extension/collector.js','utf8');
+function run(html,location={hostname:'www.amazon.com',protocol:'https:',pathname:'/gp/cart/view.html'}){const {document}=parseHTML(html);for(const i of document.querySelectorAll('input[type=checkbox]'))i.checked=i.hasAttribute('checked');return vm.runInNewContext(source+';collectAmazonCart()', {document,location,Date});}
+const row=(asin,title,price,extra='',quantity=2)=>`<div class="sc-list-item" data-asin="${asin}" data-quantity="${quantity}"><span class="sc-product-title">${title}</span><span class="sc-product-price">${price}</span><span class="sc-product-variation">Color: Black</span>${extra}</div>`;
+const result=run('<form id="activeCartViewForm"><div id="sc-active-cart">'+row('B012345678','Headphones','$75.50','<input type="checkbox" name="activeItems" checked>')+row('B012345679','Unchecked','$10.00','<input type="checkbox" name="activeItems">')+row('B012345680','Unknown currency','€20.00')+'</div></form><div id="sc-saved-cart">'+row('B012345681','Saved for later','$99.00')+'</div><input name="cardNumber" value="DO-NOT-READ">');
+assert.equal(result.items.length,2);assert.equal(result.skipped,1);assert.equal(result.items[0].quantity,2);assert.equal(result.items[0].price,'75.50');assert.equal(result.items[1].price,'');assert.equal(result.items[0].url,'https://www.amazon.com/dp/B012345678');assert.ok(!JSON.stringify(result).includes('DO-NOT-READ'));assert.ok(!JSON.stringify(result).includes('Saved for later'));
+assert.ok(run('<div></div>').error);assert.ok(run('',{hostname:'amazon.com.evil.example',protocol:'https:',pathname:'/gp/cart/view.html'}).error);assert.ok(run('',{hostname:'www.amazon.com',protocol:'https:',pathname:'/gp/buy/spc/handlers/display.html'}).error);
+const duplicate=run('<div id="sc-active-cart">'+row('B012345678','One','$1.00')+row('B012345678','Duplicate','$1.00')+'</div>');assert.equal(duplicate.items.length,1);
+const manifest=JSON.parse(readFileSync('outputs/amazon-extension/manifest.json'));assert.deepEqual(manifest.permissions,['activeTab','scripting','storage']);assert.deepEqual(manifest.host_permissions,['http://localhost:4318/*']);assert.equal(manifest.content_scripts.length,1);assert.ok(manifest.content_scripts[0].matches.every(x=>x.startsWith('https://www.amazon.com/')));assert.deepEqual(manifest.content_scripts[0].js,['collector.js','wait-save.js']);assert.equal(manifest.background.service_worker,'background.js');
+console.log('PASS: DOM fixture extraction, quantity, USD parsing, unknown currency, unchecked/saved exclusion, canonical links, no payment field data, domain/checkout rejection, deduplication and minimal permissions.');
+
+const titleVariant=run('<div id="sc-active-cart">'+row('B012345678','<span class="a-truncate-full">Full product title</span><span>Short product</span>','$7.19')+'</div>');assert.equal(titleVariant.items[0].name,'Full product title');console.log('PASS: Amazon full/truncated title duplication regression.');
+
+assert.equal(run('',{hostname:'www.amazon.com',protocol:'https:',pathname:'/cart/smart-wagon'}).needsCartPage,true);console.log('PASS: Added-to-cart page directs shopper to the full cart.');
+const image=run('<div id="sc-active-cart">'+row('B012345678','Image test','$7.19','<img src="https://m.media-amazon.com/images/G/loadIndicators/loading.gif"><img class="sc-product-image" src="https://m.media-amazon.com/images/I/product.jpg">')+'</div>');assert.equal(image.items[0].image,'https://m.media-amazon.com/images/I/product.jpg');console.log('PASS: product image takes priority over Amazon loading indicators.');

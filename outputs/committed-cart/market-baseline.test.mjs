@@ -1,0 +1,4 @@
+import assert from 'node:assert/strict';import{itemKey,lowerOffers,cartBaseline}from'./market-baseline.js';
+const items=[{name:'Headphones',variant:'Black',url:'https://example.com/a',quantity:2,price:'100.00'},{name:'Case',variant:'Black',quantity:1,price:'20.00'}];
+assert.deepEqual(lowerOffers([],10000),[]);assert.deepEqual(lowerOffers([{price:10000},{price:11000}],10000),[]);assert.equal(lowerOffers([{price:9000},{price:10000}],10000).length,1);assert.deepEqual(lowerOffers([{price:9000}],NaN),[]);
+assert.equal(cartBaseline(items),22000);assert.equal(cartBaseline(items,{[itemKey(items[0])]:9000}),20000);assert.equal(cartBaseline(items,{[itemKey(items[0])]:11000}),22000);assert.equal(cartBaseline([{...items[0],variant:'Silver'}],{[itemKey(items[0])]:9000}),20000);console.log('PASS: only strictly lower offers qualify, no-result/equal/higher prices excluded, per-item quantities and stale variant protection.');

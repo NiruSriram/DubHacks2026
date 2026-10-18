@@ -1,0 +1,15 @@
+import {parseHTML} from 'linkedom';
+import {readFileSync} from 'node:fs';
+import vm from 'node:vm';
+import assert from 'node:assert/strict';
+const {document}=parseHTML('<html><body><h1 id="productTitle">Test headphones</h1><div id="corePrice_feature_div"><span class="a-price"><span class="a-offscreen">$149.99</span></span></div><div id="twister"><span class="selection">Black</span></div><div id="addToCart_feature_div"><input id="add-to-cart-button"></div></body></html>');
+let opened;
+const context=vm.createContext({document,location:{href:'https://www.amazon.com/dp/B012345678',pathname:'/dp/B012345678'},URL,Date,setTimeout,clearTimeout,chrome:{runtime:{sendMessage:(message,callback)=>{opened=message;callback({ok:true})}}},window:{}});
+vm.runInContext(readFileSync('outputs/amazon-extension/wait-save.js','utf8'),context);
+vm.runInContext('mountWaitSave();mountWaitSave()',context);
+assert.equal(document.querySelectorAll('#committed-wait-save').length,1);
+document.querySelector('#committed-wait-save button').onclick();
+assert.equal(opened.type,'later-open-popup');
+const payload=opened.payload;assert.equal(payload.items[0].price,'149.99');assert.equal(payload.items[0].quantity,1);assert.match(payload.items[0].variant,/Black/);
+assert.throws(()=>vm.runInContext("collectWaitSaveProduct(document,'https://evil.example/dp/B012345678')",context));
+console.log('PASS: button placement, duplicate prevention, click-to-import, product price/variant, domain rejection. Offline DOM fixture.');
