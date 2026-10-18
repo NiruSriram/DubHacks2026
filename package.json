@@ -13,5 +13,8 @@
   },
   "devDependencies": {
     "linkedom": "^0.18.12"
+  },
+  "dependencies": {
+    "mongodb": "^6.21.0"
   }
 }

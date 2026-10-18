@@ -1,8 +1,17 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Later</title><link rel="stylesheet" href="popup.css"></head>
 <body>
-<header><a class="wordmark" href="#" aria-label="Later">later<span>.</span></a><button id="historyBack" class="quiet" hidden>Back</button><button id="read" class="quiet">Refresh cart</button></header>
+<header><a class="wordmark" href="#" aria-label="Later">later<span>.</span></a><button id="historyBack" class="quiet" hidden>Back</button><button id="accountToggle" class="quiet">Sign in</button><button id="read" class="quiet">Refresh cart</button></header>
 <main id="app" aria-busy="true">
+<section id="authView" hidden>
+<div class="section-heading"><h1 id="authHeading">Sign in</h1></div>
+<div class="auth-tabs" role="tablist"><button type="button" class="active" data-auth-mode="login">Sign in</button><button type="button" data-auth-mode="signup">Create account</button></div>
+<label class="auth-field">Email<input id="authEmail" type="email" autocomplete="email" maxlength="254" placeholder="you@example.com"></label>
+<label class="auth-field">Password<input id="authPassword" type="password" autocomplete="current-password" minlength="8" maxlength="128" placeholder="At least 8 characters"></label>
+<p id="authHint" class="auth-hint">Accounts need MongoDB on the local Later server.</p>
+<button id="authSubmit" class="primary">Sign in</button>
+<button id="authCancel" class="quiet wide">Back</button>
+</section>
 <section id="home" class="empty" hidden><div class="empty-shape" aria-hidden="true">L<span>.</span></div><h1>Your activity</h1><p>Open a shopping page to start a new wait.</p><button id="reviewHistory" class="primary">Review past orders</button></section>
 <section id="history" hidden><div class="section-heading"><h1>Your activity</h1><span id="historyCount"></span></div><div id="historyList"></div><p id="historyEmpty" class="history-empty" hidden>No orders to review yet.</p><div id="historyPagination" class="pagination" hidden><button id="historyPrevious" aria-label="Previous orders">‹</button><span id="historyPageCount"></span><button id="historyNext" aria-label="Next orders">›</button></div></section>
 <section id="empty" class="empty"><div class="empty-shape" aria-hidden="true">L<span>.</span></div><h1>Your shopping cart</h1><p id="emptyMessage">Checking this page…</p><button id="retry" class="primary">Read this page</button></section>

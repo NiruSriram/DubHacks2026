@@ -1,6 +1,6 @@
 # Committed — shopper intent + merchant offers
 
-Local-only prototype. Node.js 22+. No additional packages, Sites hosting, or ChatGPT login.
+Local-only prototype. Node.js 22+. Optional `mongodb` package for shopper email/password accounts (MongoDB Atlas via `MONGODB_URI`). No Sites hosting or ChatGPT login.
 
 From the workspace: `node outputs/committed-cart/server.mjs`
 From an extracted distribution: `node committed-cart/server.mjs`
